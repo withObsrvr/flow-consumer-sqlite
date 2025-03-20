@@ -15,41 +15,36 @@
           inherit system;
           overlays = [ gomod2nix.overlays.default ];
         };
+        
+        # Get the go package from gomod2nix
+        goEnv = pkgs.mkGoEnv { modules = ./gomod2nix.toml; };
       in
       {
         packages = {
-          default = pkgs.buildGoApplication {
+          default = pkgs.stdenv.mkDerivation {
             pname = "flow-consumer-sqlite";
             version = "0.1.0";
             src = ./.;
             
-            # Use the gomod2nix generated modules file
-            modules = ./gomod2nix.toml;
-            
-            # Set empty main module to avoid building a main binary
-            mainModule = "";
-            
-            # Skip regular Go program build for plugins
-            buildPhase = "true";
-            
-            # Set environment variables
-            hardeningDisable = [ "all" ];
-            CGO_ENABLED = "1";
-            
-            # Add SQLite library as a build dependency
-            nativeBuildInputs = [ pkgs.pkg-config ];
+            # Add build dependencies
+            nativeBuildInputs = [ 
+              pkgs.pkg-config 
+              pkgs.go_1_23
+              goEnv
+            ];
             buildInputs = [ pkgs.sqlite ];
             
-            # Bypass the normal install phase
-            dontInstall = true;
+            # Enable CGO for SQLite
+            CGO_ENABLED = "1";
             
-            # Build the plugin and "install" it
-            preFixup = ''
-              echo "Building plugin..."
-              cd $GOPATH/src/${src.meta.package.goPackagePath}
+            # Simple build phase - build the plugin
+            buildPhase = ''
+              echo "Building plugin using gomod2nix..."
               go build -buildmode=plugin -o flow-consumer-sqlite.so .
-              
-              # Create output directories and install
+            '';
+            
+            # Install phase - put the plugin where it should go
+            installPhase = ''
               mkdir -p $out/lib
               cp flow-consumer-sqlite.so $out/lib/
               
