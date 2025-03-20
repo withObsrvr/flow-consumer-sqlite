@@ -1,5 +1,5 @@
 {
-  description = "Obsrvr Flow SQLite Consumer";
+  description = "Obsrvr Flow SQLite Consumer (Source Distribution)";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
@@ -13,60 +13,50 @@
       in
       {
         packages = {
-          default = pkgs.buildGoModule {
-            pname = "flow-consumer-sqlite";
+          default = pkgs.stdenv.mkDerivation {
+            pname = "flow-consumer-sqlite-src";
             version = "0.1.0";
             src = ./.;
             
-            # Use the previously verified hash for dependencies
-            vendorHash = "sha256-0BiflEL31zzdd8veUNJqAroFdc8nRmfrCBEDa7KEIsw=";
+            # No build needed, we're just packaging the source
+            dontBuild = true;
             
-            # Don't build the main program
-            subPackages = [];
-            
-            # Enable CGO for SQLite
-            env = {
-              CGO_ENABLED = "1";
-            };
-            
-            # Add SQLite as a dependency
-            nativeBuildInputs = [ pkgs.pkg-config ];
-            buildInputs = [ pkgs.sqlite ];
-            
-            # Override the build phase to only build the plugin
-            buildPhase = ''
-              runHook preBuild
-              
-              echo "Building plugin..."
-              go build -buildmode=plugin -o flow-consumer-sqlite.so .
-              
-              runHook postBuild
-            '';
-            
-            # Custom install phase for the plugin
+            # Install the source files into the output
             installPhase = ''
-              runHook preInstall
+              # Create the destination directory
+              mkdir -p $out/src/github.com/withObsrvr/flow-consumer-sqlite
               
-              mkdir -p $out/lib
-              cp flow-consumer-sqlite.so $out/lib/
+              # Copy all source code and Go module files
+              cp -r ./* $out/src/github.com/withObsrvr/flow-consumer-sqlite/
               
-              # Also copy metadata
-              mkdir -p $out/share
-              cp go.mod go.sum $out/share/
+              # Create a build script that the main program can use
+              mkdir -p $out/bin
+              cat > $out/bin/build-plugin.sh << 'EOF'
+              #!/bin/sh
+              set -e
               
-              runHook postInstall
+              # Set up environment for building
+              export CGO_ENABLED=1
+              
+              # Create plugins directory if it doesn't exist
+              mkdir -p plugins
+              
+              # Build the plugin with the same Go version and dependencies as the main program
+              echo "Building SQLite consumer plugin..."
+              go build -buildmode=plugin -o plugins/flow-consumer-sqlite.so github.com/withObsrvr/flow-consumer-sqlite
+              
+              echo "Plugin built successfully: plugins/flow-consumer-sqlite.so"
+              EOF
+              
+              # Make the script executable
+              chmod +x $out/bin/build-plugin.sh
             '';
+            
+            meta = {
+              description = "Source code for Obsrvr Flow SQLite Consumer Plugin";
+              mainProgram = "build-plugin.sh";
+            };
           };
-        };
-
-        # Since this approach works, we don't need gomod2nix. But we can easily add a tool to update the vendorHash:
-        apps.update-deps = {
-          type = "app";
-          program = toString (pkgs.writeShellScript "update-deps" ''
-            echo "Updating dependencies hash..."
-            echo "Set vendorHash = null and run 'nix build', then replace with new hash"
-            echo "This workflow is simpler than using gomod2nix for plugins"
-          '');
         };
 
         devShells.default = pkgs.mkShell {
