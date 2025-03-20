@@ -26,38 +26,34 @@
             # Use the gomod2nix generated modules file
             modules = ./gomod2nix.toml;
             
-            # Don't build the default main package since we're making a plugin
-            subPackages = [];
+            # Set empty main module to avoid building a main binary
+            mainModule = "";
+            
+            # Skip regular Go program build for plugins
+            buildPhase = "true";
             
             # Set environment variables
+            hardeningDisable = [ "all" ];
             CGO_ENABLED = "1";
             
             # Add SQLite library as a build dependency
             nativeBuildInputs = [ pkgs.pkg-config ];
             buildInputs = [ pkgs.sqlite ];
             
-            # The most important part - override the build command
-            overrideModAttrs = _old: {
-              buildPhase = ''
-                mkdir -p $GOPATH/bin
-              '';
-            };
+            # Bypass the normal install phase
+            dontInstall = true;
             
-            # Skip the installPhase of buildGoApplication
-            preInstall = "find . -name flow-consumer-sqlite -delete";
-            
-            # Custom build phase for the plugin (postBuild runs after main build but before install)
-            postBuild = ''
+            # Build the plugin and "install" it
+            preFixup = ''
               echo "Building plugin..."
+              cd $GOPATH/src/${src.meta.package.goPackagePath}
               go build -buildmode=plugin -o flow-consumer-sqlite.so .
-            '';
-            
-            # Custom install phase to properly install the plugin
-            installPhase = ''
+              
+              # Create output directories and install
               mkdir -p $out/lib
               cp flow-consumer-sqlite.so $out/lib/
               
-              # Also install metadata
+              # Also copy metadata
               mkdir -p $out/share
               cp go.mod go.sum $out/share/
             '';
