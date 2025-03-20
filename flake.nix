@@ -17,7 +17,8 @@
             pname = "flow-consumer-sqlite";
             version = "0.1.0";
             src = ./.;
-            # Hash calculated by Nix for go dependencies
+            
+            # Use the verified hash for go dependencies
             vendorHash = "sha256-0BiflEL31zzdd8veUNJqAroFdc8nRmfrCBEDa7KEIsw=";
             
             # Enable CGO for SQLite
@@ -37,6 +38,9 @@
               runHook preInstall
               mkdir -p $out/lib
               cp flow-consumer-sqlite.so $out/lib/
+              # Also install a copy of go.mod for future reference
+              mkdir -p $out/share
+              cp go.mod go.sum $out/share/
               runHook postInstall
             '';
             
@@ -49,13 +53,14 @@
           };
         };
 
-        devShell = pkgs.mkShell {
-          buildInputs = [ 
-            pkgs.go_1_23 
-            pkgs.sqlite
-            pkgs.pkg-config
+        devShells.default = pkgs.mkShell {
+          buildInputs = with pkgs; [ 
+            go_1_23
+            sqlite
+            pkg-config
           ];
-          # Enable CGO in the development shell too
+          
+          # Enable CGO in the development shell
           env = {
             CGO_ENABLED = "1";
           };
