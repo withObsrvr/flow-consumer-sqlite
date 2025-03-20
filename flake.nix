@@ -4,61 +4,69 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     flake-utils.url = "github:numtide/flake-utils";
-    gomod2nix.url = "github:tweag/gomod2nix";
-    gomod2nix.inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  outputs = { self, nixpkgs, flake-utils, gomod2nix }:
+  outputs = { self, nixpkgs, flake-utils }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        pkgs = import nixpkgs {
-          inherit system;
-          overlays = [ gomod2nix.overlays.default ];
-        };
-        
-        # Get the go package from gomod2nix
-        goEnv = pkgs.mkGoEnv { modules = ./gomod2nix.toml; };
+        pkgs = nixpkgs.legacyPackages.${system};
       in
       {
         packages = {
-          default = pkgs.stdenv.mkDerivation {
+          default = pkgs.buildGoModule {
             pname = "flow-consumer-sqlite";
             version = "0.1.0";
             src = ./.;
             
-            # Add build dependencies
-            nativeBuildInputs = [ 
-              pkgs.pkg-config 
-              pkgs.go_1_23
-              goEnv
-            ];
-            buildInputs = [ pkgs.sqlite ];
+            # Use the previously verified hash for dependencies
+            vendorHash = "sha256-0BiflEL31zzdd8veUNJqAroFdc8nRmfrCBEDa7KEIsw=";
+            
+            # Don't build the main program
+            subPackages = [];
             
             # Enable CGO for SQLite
-            CGO_ENABLED = "1";
+            env = {
+              CGO_ENABLED = "1";
+            };
             
-            # Simple build phase - build the plugin
+            # Add SQLite as a dependency
+            nativeBuildInputs = [ pkgs.pkg-config ];
+            buildInputs = [ pkgs.sqlite ];
+            
+            # Override the build phase to only build the plugin
             buildPhase = ''
-              echo "Building plugin using gomod2nix..."
+              runHook preBuild
+              
+              echo "Building plugin..."
               go build -buildmode=plugin -o flow-consumer-sqlite.so .
+              
+              runHook postBuild
             '';
             
-            # Install phase - put the plugin where it should go
+            # Custom install phase for the plugin
             installPhase = ''
+              runHook preInstall
+              
               mkdir -p $out/lib
               cp flow-consumer-sqlite.so $out/lib/
               
               # Also copy metadata
               mkdir -p $out/share
               cp go.mod go.sum $out/share/
+              
+              runHook postInstall
             '';
           };
         };
 
-        # Provide the gomod2nix tool as a runnable app
-        apps.gomod2nix = {
+        # Since this approach works, we don't need gomod2nix. But we can easily add a tool to update the vendorHash:
+        apps.update-deps = {
           type = "app";
-          program = "${gomod2nix.packages.${system}.default}/bin/gomod2nix";
+          program = toString (pkgs.writeShellScript "update-deps" ''
+            echo "Updating dependencies hash..."
+            echo "Set vendorHash = null and run 'nix build', then replace with new hash"
+            echo "This workflow is simpler than using gomod2nix for plugins"
+          '');
         };
 
         devShells.default = pkgs.mkShell {
@@ -66,18 +74,12 @@
             go_1_23
             sqlite
             pkg-config
-            gomod2nix.packages.${system}.default
           ];
           
           # Enable CGO in the development shell
           env = {
             CGO_ENABLED = "1";
           };
-          
-          # Remind about gomod2nix usage
-          shellHook = ''
-            echo "Use 'nix run .#gomod2nix' to update dependency information"
-          '';
         };
       }
     );
