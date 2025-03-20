@@ -15,39 +15,45 @@
           inherit system;
           overlays = [ gomod2nix.overlays.default ];
         };
+        
+        # Import the generated dependencies
+        goModules = pkgs.callPackage ./gomod2nix.toml { };
       in
       {
         packages = {
-          default = pkgs.buildGoApplication {
+          default = pkgs.stdenv.mkDerivation {
             pname = "flow-consumer-sqlite";
             version = "0.1.0";
             src = ./.;
             
-            # Use gomod2nix modules file
-            modules = ./gomod2nix.toml;
+            # Add required build inputs
+            nativeBuildInputs = [ 
+              pkgs.pkg-config
+              pkgs.go_1_23
+            ];
+            buildInputs = [ pkgs.sqlite ];
             
-            # Enable CGO for SQLite
+            # Set CGO environment
             CGO_ENABLED = "1";
             
-            # Build as a shared library/plugin
-            postBuild = ''
+            # Custom build phase for Go plugin
+            buildPhase = ''
+              # Set GOPATH for modules
+              export GOPATH=${goModules}:$GOPATH
+              
+              # Build the plugin
               go build -buildmode=plugin -o flow-consumer-sqlite.so .
             '';
-
-            # Custom install phase for the plugin
+            
+            # Install the plugin
             installPhase = ''
-              runHook preInstall
               mkdir -p $out/lib
               cp flow-consumer-sqlite.so $out/lib/
-              # Also install a copy of go.mod for future reference
+              
+              # Install metadata
               mkdir -p $out/share
               cp go.mod go.sum $out/share/
-              runHook postInstall
             '';
-            
-            # Add SQLite library as a build dependency
-            nativeBuildInputs = [ pkgs.pkg-config ];
-            buildInputs = [ pkgs.sqlite ];
           };
         };
 
